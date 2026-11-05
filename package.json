@@ -1,0 +1,14 @@
+{
+  "name": "personalized-learning-demo",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": ["client", "server"],
+  "scripts": {
+    "dev": "concurrently -k -n api,web -c blue,green \"npm run dev -w server\" \"npm run dev -w client\"",
+    "build": "npm run build -w client",
+    "start:api": "npm run start -w server",
+    "seed": "npm run seed -w server",
+    "test": "npm run test -w server && python3 -m unittest discover -s recommender -p 'test_*.py'"
+  },
+  "devDependencies": { "concurrently": "^9.1.2" }
+}
