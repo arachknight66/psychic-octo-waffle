@@ -18,7 +18,7 @@ The project objectives are to:
 
 ## Scope
 
-The prototype includes student registration and sign-in, sample learning resources, quizzes, recommendations, and personal progress. The initial dataset covers Python basics, linear equations, and database design. It uses synthetic accounts, resources, quiz answers, and attempt history.
+The prototype includes student registration and sign-in, sample learning resources, quizzes, recommendations, profile management, and personal progress. The demo dataset covers Python basics, linear equations, database design, statistics fundamentals, and academic writing. It includes synthetic resources, lesson examples, practice checks, interests, completion records, quiz answers, and attempt history.
 
 Teacher reporting, collaborative recommendations, trained prediction models, generative tutoring, mobile applications, and LMS integration are future work. The system supports educator judgment; it is not intended to replace it.
 
@@ -30,7 +30,7 @@ The Python service matches topic and suggested level to the available resource c
 
 ## Architecture and implementation
 
-The React/Vite frontend provides the dashboard, study library, quiz flow, and progress page. The Express API validates requests, hashes passwords with bcrypt, issues JWTs, grades answers, and saves learning records. MongoDB stores students, resources, quizzes, and attempts. FastAPI provides recommendations. The architecture and learning loop are described in [architecture.md](architecture.md).
+The React/Vite frontend provides the dashboard, usable lesson library, profile settings, quiz flow, and progress page. The Express API validates requests, hashes passwords with bcrypt, issues JWTs, grades quiz and resource practice answers, stores resource completion, and saves learning records. MongoDB stores students, resources, quizzes, attempts, and completion records. FastAPI provides recommendations, which prioritize selected learner interests while retaining topic performance explanations. The architecture and learning loop are described in [architecture.md](architecture.md).
 
 ## Evaluation plan
 

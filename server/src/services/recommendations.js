@@ -14,8 +14,9 @@ export function fallbackRecommendations(topics, resources) {
         : topic.accuracy >= 85
           ? `You’re scoring ${topic.accuracy}% recently. Try a more challenging resource to keep progressing.`
           : `Your recent accuracy is ${topic.accuracy}%. This resource matches your current level.`;
-    return { ...resource.toObject(), reason };
-  }).filter(Boolean).slice(0, 4);
+    const { exercise: _exerciseKey, ...safeResource } = resource.toObject();
+    return { ...safeResource, reason };
+  }).filter(Boolean);
 }
 
 export async function getRecommendations(topics, resources) {

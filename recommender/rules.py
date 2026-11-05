@@ -28,4 +28,4 @@ def recommend(topics: list[dict], resources: list[dict]) -> list[dict]:
         result = dict(resource)
         result["reason"] = explanation(topic, level)
         results.append(result)
-    return results[:4]
+    return results

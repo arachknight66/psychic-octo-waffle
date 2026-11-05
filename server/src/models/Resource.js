@@ -4,6 +4,12 @@ const resourceSchema = new mongoose.Schema({
   kind: { type: String, enum: ['Guide', 'Video', 'Practice'], required: true },
   level: { type: String, enum: ['Beginner', 'Intermediate', 'Advanced'], required: true },
   duration: { type: String, required: true }, description: { type: String, required: true }, content: { type: String, required: true },
+  example: { type: String, default: '' },
+  transcript: { type: String, default: '' },
+  exercise: {
+    prompt: { type: String, default: '' }, options: { type: [String], default: [] },
+    answerIndex: { type: Number, default: 0 }, explanation: { type: String, default: '' }
+  },
   accent: { type: String, default: 'blue' }
 }, { timestamps: true });
 resourceSchema.index({ topic: 1, level: 1 });

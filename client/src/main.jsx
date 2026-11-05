@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { Activity, ArrowDownRight, ArrowRight, ArrowUpRight, BookOpen, BrainCircuit, Check, CheckCircle2, ChevronDown, CircleHelp, Clock3, Compass, FileText, GraduationCap, LayoutDashboard, LibraryBig, Lightbulb, LoaderCircle, LogOut, Menu, Play, RotateCcw, Sparkles, Target, X } from 'lucide-react';
+import { Activity, ArrowDownRight, ArrowRight, ArrowUpRight, BookOpen, BrainCircuit, BookmarkCheck, Check, CheckCircle2, ChevronDown, CircleHelp, Clock3, Compass, FileText, GraduationCap, LayoutDashboard, LibraryBig, Lightbulb, LoaderCircle, LogOut, Menu, Play, RotateCcw, Save, Search, Settings2, Sparkles, Target, UserRound, X } from 'lucide-react';
 import './styles.css';
 
 const API = import.meta.env.VITE_API_URL || 'http://localhost:4000';
@@ -9,7 +9,8 @@ const navItems = [
   { id: 'home', label: 'Overview', icon: LayoutDashboard },
   { id: 'resources', label: 'Study library', icon: LibraryBig },
   { id: 'quiz', label: 'Quick quiz', icon: CircleHelp },
-  { id: 'progress', label: 'My progress', icon: Activity }
+  { id: 'progress', label: 'My progress', icon: Activity },
+  { id: 'profile', label: 'Profile settings', icon: UserRound }
 ];
 
 async function request(path, token, options = {}) {
@@ -28,8 +29,9 @@ function App() {
   const [session, setSession] = useState(() => { try { return JSON.parse(localStorage.getItem(STORAGE_KEY)); } catch { return null; } });
   const [publicScreen, setPublicScreen] = useState('landing');
   const [activeTab, setActiveTab] = useState('home');
+  const [selectedResourceId, setSelectedResourceId] = useState(() => window.location.pathname.match(/^\/library\/([^/]+)$/)?.[1] || null);
   const [mobileNav, setMobileNav] = useState(false);
-  const [data, setData] = useState({ progress: null, recommendations: [], resources: [], recSource: 'python' });
+  const [data, setData] = useState({ progress: null, recommendations: [], resources: [], recSource: 'python', profile: null, completedResources: [] });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
@@ -39,20 +41,69 @@ function App() {
     if (!token) return;
     setLoading(true); setError('');
     try {
-      const [progress, recs, library] = await Promise.all([
-        request('/progress', token), request('/recommendations', token), request('/resources', token)
+      const [progress, recs, library, profile, resourceProgress] = await Promise.all([
+        request('/progress', token), request('/recommendations', token), request('/resources', token), request('/me', token), request('/resource-progress', token)
       ]);
-      setData({ progress, recommendations: recs.recommendations, resources: library.resources, recSource: recs.source });
+      setData({ progress, recommendations: recs.recommendations, resources: library.resources, recSource: recs.source, profile: profile.user, completedResources: resourceProgress.completed.map((item) => item.resourceId) });
+      setSession((current) => {
+        if (!current || current.token !== token) return current;
+        const updated = { ...current, user: profile.user };
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+        return updated;
+      });
     } catch (loadError) {
-      if (/session|sign in/i.test(loadError.message)) signOut();
+      if (/session|sign in|account not found/i.test(loadError.message)) signOut();
       else setError(loadError.message);
     } finally { setLoading(false); }
   }, [session?.token]);
 
   useEffect(() => { if (session?.token) loadData(session.token); }, [session?.token, loadData]);
-  const signOut = () => { localStorage.removeItem(STORAGE_KEY); setSession(null); setPublicScreen('landing'); setData({ progress: null, recommendations: [], resources: [], recSource: 'python' }); };
+  useEffect(() => {
+    const syncRoute = (event) => {
+      const resourceId = window.location.pathname.match(/^\/library\/([^/]+)$/)?.[1] || null;
+      setSelectedResourceId(resourceId);
+      if (resourceId) setActiveTab('resources');
+      else if (event.state?.learnwellTab) setActiveTab(event.state.learnwellTab);
+      else if (activeTab === 'resources') setActiveTab('resources');
+    };
+    window.addEventListener('popstate', syncRoute);
+    return () => window.removeEventListener('popstate', syncRoute);
+  }, [activeTab]);
+  const signOut = () => { localStorage.removeItem(STORAGE_KEY); setSession(null); setPublicScreen('landing'); setData({ progress: null, recommendations: [], resources: [], recSource: 'python', profile: null, completedResources: [] }); };
   const onSignIn = (next) => { localStorage.setItem(STORAGE_KEY, JSON.stringify(next)); setSession(next); setNotice('Welcome back. Your learning space is ready.'); };
   const onQuizComplete = async () => { await loadData(); setNotice('Quiz saved. Your topic progress and next steps are up to date.'); };
+  const onProfileSaved = async (user) => {
+    setData((current) => ({ ...current, profile: user }));
+    setSession((current) => {
+      if (!current) return current;
+      const updated = { ...current, user };
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+      return updated;
+    });
+    await loadData(session?.token);
+    setNotice('Profile changes saved.');
+  };
+  const onToggleResource = async (resourceId, completed) => {
+    await request(`/resources/${resourceId}/completion`, session.token, { method: completed ? 'DELETE' : 'PUT' });
+    setData((current) => ({ ...current, completedResources: completed ? current.completedResources.filter((id) => id !== resourceId) : [...current.completedResources, resourceId] }));
+  };
+  const openResource = (item) => {
+    window.history.replaceState({ learnwellTab: activeTab }, '', window.location.pathname);
+    window.history.pushState({ resourceId: item._id }, '', `/library/${encodeURIComponent(item._id)}`);
+    setSelectedResourceId(item._id);
+    setMobileNav(false);
+  };
+  const closeResource = () => {
+    window.history.replaceState({ learnwellTab: 'resources' }, '', '/');
+    setSelectedResourceId(null);
+    setActiveTab('resources');
+  };
+  const navigateToTab = (tab) => {
+    if (selectedResourceId) window.history.replaceState({ learnwellTab: tab }, '', '/');
+    setSelectedResourceId(null);
+    setActiveTab(tab);
+    setMobileNav(false);
+  };
   const topicNames = useMemo(() => [...new Set(data.resources.map((item) => item.topic))], [data.resources]);
 
   if (!session?.token) return publicScreen === 'landing'
@@ -68,11 +119,11 @@ function App() {
       <div className="brand"><div className="brand-mark"><BrainCircuit size={22} strokeWidth={2.2} /></div><span>learnwell</span></div>
       <div className="course-label">Your learning space</div>
       <nav aria-label="Main navigation">
-        {navItems.map(({ id, label, icon: Icon }) => <button key={id} className={`nav-link ${activeTab === id ? 'selected' : ''}`} onClick={() => { setActiveTab(id); setMobileNav(false); }}><Icon size={18} /><span>{label}</span>{id === 'quiz' && <span className="nav-dot" />}</button>)}
+        {navItems.map(({ id, label, icon: Icon }) => <button key={id} className={`nav-link ${activeTab === id ? 'selected' : ''}`} onClick={() => navigateToTab(id)}><Icon size={18} /><span>{label}</span>{id === 'quiz' && <span className="nav-dot" />}</button>)}
       </nav>
       <div className="sidebar-bottom">
         <div className="help-card"><div className="help-icon"><Lightbulb size={17} /></div><strong>Small steps add up.</strong><p>A little practice today makes tomorrow easier.</p></div>
-        <button className="profile-button" onClick={signOut} aria-label="Sign out"><div className="avatar">{initials(user.name)}</div><div className="profile-copy"><strong>{user.name}</strong><span>Student account</span></div><LogOut size={17} className="logout-icon" /></button>
+        <div className="account-actions"><button className="profile-button" onClick={() => navigateToTab('profile')} aria-label="Open profile settings"><div className="avatar">{initials(user.name)}</div><div className="profile-copy"><strong>{user.name}</strong><span>Profile settings</span></div><Settings2 size={17} className="logout-icon" /></button><button className="signout-button" onClick={signOut} aria-label="Sign out"><LogOut size={17}/></button></div>
       </div>
     </aside>
     {mobileNav && <button className="nav-scrim" onClick={() => setMobileNav(false)} aria-label="Close navigation" />}
@@ -82,10 +133,13 @@ function App() {
         {error && <div className="alert error-alert" role="alert"><span>{error}</span><button onClick={() => loadData()} className="text-button">Try again</button></div>}
         {notice && <div className="alert success-alert" role="status"><CheckCircle2 size={17} /><span>{notice}</span><button onClick={() => setNotice('')} aria-label="Dismiss message"><X size={16} /></button></div>}
         {loading && !data.progress ? <div className="loading-state"><LoaderCircle className="spin" size={26} /><span>Preparing your learning space…</span></div> : <>
-          {activeTab === 'home' && <Dashboard user={user} summary={summary} topics={topicRows} weakTopic={weakTopic} recommendations={data.recommendations} recSource={data.recSource} onNavigate={setActiveTab} onOpenResource={(item) => { setResourceFilter(item.topic); setActiveTab('resources'); }} />}
-          {activeTab === 'resources' && <ResourcesPage resources={data.resources} selectedTopic={resourceFilter} onSelectTopic={setResourceFilter} />}
+          {selectedResourceId ? <ResourceLesson token={session.token} item={data.resources.find((resource) => resource._id === decodeURIComponent(selectedResourceId))} completed={data.completedResources.includes(decodeURIComponent(selectedResourceId))} onToggleComplete={onToggleResource} onBack={closeResource} /> : <>
+          {activeTab === 'home' && <Dashboard user={user} summary={summary} topics={topicRows} weakTopic={weakTopic} recommendations={data.recommendations} recSource={data.recSource} completedCount={data.completedResources.length} onNavigate={navigateToTab} onOpenResource={(item) => { setResourceFilter(item.topic); openResource(item); }} />}
+          {activeTab === 'resources' && <ResourcesPage resources={data.resources} selectedTopic={resourceFilter} onSelectTopic={setResourceFilter} completedResources={data.completedResources} onOpenResource={openResource} />}
           {activeTab === 'quiz' && <QuizPage token={session.token} topicNames={topicNames} onComplete={onQuizComplete} />}
           {activeTab === 'progress' && <ProgressPage topics={topicRows} summary={summary} attempts={data.progress?.recentAttempts || []} />}
+          {activeTab === 'profile' && <ProfilePage profile={data.profile || user} topics={topicNames} completedCount={data.completedResources.length} onSaved={onProfileSaved} token={session.token} />}
+          </>}
         </>}
       </div>
       <footer className="page-footer"><span>Learnwell learning demo</span><span>Built for steady progress</span></footer>
@@ -146,13 +200,13 @@ function LoginScreen({ onSignIn, initialMode = 'login', onBack }) {
 
 function PageTitle({ eyebrow, title, description, action }) { return <div className="page-title-row"><div><div className="page-eyebrow">{eyebrow}</div><h1>{title}</h1><p>{description}</p></div>{action}</div>; }
 function StatCard({ icon: Icon, label, value, foot, tone = 'blue' }) { return <div className={`stat-card stat-${tone}`}><div className="stat-top"><span className="stat-icon"><Icon size={18} /></span><span className="stat-label">{label}</span></div><div className="stat-value">{value}</div><div className="stat-foot">{foot}</div></div>; }
-function Dashboard({ user, summary, topics, weakTopic, recommendations, recSource, onNavigate, onOpenResource }) {
+function Dashboard({ user, summary, topics, weakTopic, recommendations, recSource, completedCount, onNavigate, onOpenResource }) {
   const firstName = user.name?.split(' ')[0] || 'there';
   const orderedTopics = [...topics].sort((a, b) => (a.attempts === 0 ? 1 : 0) - (b.attempts === 0 ? 1 : 0) || a.accuracy - b.accuracy);
   return <>
     <section className="welcome-banner"><div className="welcome-copy"><div className="welcome-date"><span className="sun-dot" /> Your study map</div><h1>The next step starts here, {firstName}.</h1><p>{weakTopic ? <>A short session in <strong>{weakTopic.topic}</strong> could help you keep building momentum.</> : 'Choose a topic and we’ll help you find a good place to begin.'}</p><button className="light-button" onClick={() => onNavigate('quiz')}>Take a quick quiz <ArrowRight size={16} /></button></div><LearningMap topics={topics} /><div className="banner-mark">Learnwell <span>·</span> Study map</div></section>
     <div className="section-heading"><div><h2>Your learning at a glance</h2><p>Progress builds one session at a time.</p></div><button className="quiet-link" onClick={() => onNavigate('progress')}>See progress <ArrowRight size={15} /></button></div>
-    <section className="stats-grid"><StatCard icon={Target} label="Quizzes completed" value={summary.quizzesCompleted || 0} foot="Every attempt helps you grow" tone="blue"/><StatCard icon={Activity} label="Overall accuracy" value={pct(summary.overallAccuracy)} foot="Across your recent quizzes" tone="gold"/><StatCard icon={Compass} label="Topics in your orbit" value={summary.topicsTracked || 0} foot="Learning paths to explore" tone="mint"/></section>
+    <section className="stats-grid"><StatCard icon={Target} label="Quizzes completed" value={summary.quizzesCompleted || 0} foot="Every attempt helps you grow" tone="blue"/><StatCard icon={Activity} label="Overall accuracy" value={pct(summary.overallAccuracy)} foot="Across your recent quizzes" tone="gold"/><StatCard icon={BookmarkCheck} label="Resources completed" value={completedCount} foot="Lessons finished in your library" tone="mint"/></section>
     <div className="dashboard-columns"><section className="panel topic-panel"><div className="panel-heading"><div><h2>Topics in focus</h2><p>A snapshot of how things are going.</p></div><button className="icon-link" onClick={() => onNavigate('progress')} aria-label="View all progress"><ArrowRight size={18}/></button></div><div className="topic-list">{orderedTopics.slice(0, 3).map((topic) => <TopicRow key={topic.topic} topic={topic} />)}</div><button className="panel-footer-link" onClick={() => onNavigate('progress')}>View your progress <ArrowRight size={15}/></button></section>
       <section className="focus-panel"><div className="focus-icon"><Lightbulb size={20}/></div><div className="focus-label">A good next step</div><h2>{weakTopic ? `Build confidence in ${weakTopic.topic}` : 'Choose a topic to begin'}</h2><p>{weakTopic ? `Your recent quiz accuracy is ${weakTopic.accuracy}%. We’ve picked a resource that meets you where you are.` : 'Try a quick quiz or browse the study library to find a topic you like.'}</p><button onClick={() => onNavigate(weakTopic ? 'resources' : 'quiz')}>{weakTopic ? 'Open study library' : 'Choose a quiz'} <ArrowRight size={16}/></button><div className="focus-decoration">✳</div></section></div>
     <div className="section-heading recommendation-heading"><div><h2>Picked for your next session</h2><p>Suggestions that match your recent progress.</p></div><button className="quiet-link" onClick={() => onNavigate('resources')}>Browse library <ArrowRight size={15}/></button></div>
@@ -183,17 +237,41 @@ function RecommendationCard({ item, onClick }) {
   const Icon = item.kind === 'Video' ? Play : item.kind === 'Practice' ? Target : FileText;
   return <button className={`recommendation-card accent-${item.accent || 'blue'}`} onClick={onClick}><div className="recommend-top"><div className="recommend-icon"><Icon size={17}/></div><span className="level-chip">{item.level}</span></div><div className="recommend-topic">{item.subject} <span>/</span> {item.topic}</div><h3>{item.title}</h3><p>{item.reason || item.description}</p><div className="recommend-bottom"><span><Clock3 size={14}/>{item.duration}</span><span>Explore <ArrowRight size={14}/></span></div></button>;
 }
-function ResourcesPage({ resources, selectedTopic, onSelectTopic }) {
+function ResourcesPage({ resources, selectedTopic, onSelectTopic, completedResources, onOpenResource }) {
   const filter = selectedTopic;
   const [kind, setKind] = useState('All types');
+  const [query, setQuery] = useState('');
   const topics = ['All topics', ...new Set(resources.map((resource) => resource.topic))];
-  const filtered = resources.filter((resource) => (filter === 'All topics' || resource.topic === filter) && (kind === 'All types' || resource.kind === kind));
-  return <><PageTitle eyebrow="Study library" title="Find a useful next step." description="Short guides and practice picked to fit the way you’re learning."/><div className="filters-row"><div className="filter-select"><BookOpen size={16}/><select value={filter} onChange={(e) => onSelectTopic(e.target.value)} aria-label="Filter by topic">{topics.map((topic) => <option key={topic}>{topic}</option>)}</select><ChevronDown size={15}/></div><div className="type-tabs" aria-label="Filter by resource type">{['All types', 'Guide', 'Video', 'Practice'].map((value) => <button key={value} onClick={() => setKind(value)} className={kind === value ? 'active' : ''}>{value}</button>)}</div></div><div className="resource-grid">{filtered.map((item) => <ResourceCard item={item} key={item._id}/>)}</div>{filtered.length === 0 && <div className="empty-card">No resources match these filters. Try another topic or type.</div>}</>;
+  const filtered = resources.filter((resource) => (filter === 'All topics' || resource.topic === filter) && (kind === 'All types' || resource.kind === kind) && `${resource.title} ${resource.subject} ${resource.topic} ${resource.description}`.toLowerCase().includes(query.toLowerCase()));
+  return <><PageTitle eyebrow="Study library" title="Find a useful next step." description={`${resources.length} learning resources, with notes, worked examples, transcripts, and practice checks.`}/><div className="library-toolbar"><label className="library-search"><Search size={16}/><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search courses and lessons" aria-label="Search study resources"/></label><div className="filter-select"><BookOpen size={16}/><select value={filter} onChange={(e) => onSelectTopic(e.target.value)} aria-label="Filter by topic">{topics.map((topic) => <option key={topic}>{topic}</option>)}</select><ChevronDown size={15}/></div></div><div className="library-result-line"><span>{filtered.length} resources</span><span>{completedResources.length} completed</span></div><div className="filters-row"><div className="type-tabs" aria-label="Filter by resource type">{['All types', 'Guide', 'Video', 'Practice'].map((value) => <button key={value} onClick={() => setKind(value)} className={kind === value ? 'active' : ''}>{value}</button>)}</div></div><div className="resource-grid">{filtered.map((item) => <ResourceCard item={item} key={item._id} completed={completedResources.includes(item._id)} onOpen={() => onOpenResource(item)}/>)}</div>{filtered.length === 0 && <div className="empty-card">No resources match this search. Try a different topic or phrase.</div>}</>;
 }
-function ResourceCard({ item }) {
-  const [open, setOpen] = useState(false);
+function ResourceCard({ item, completed, onOpen }) {
   const Icon = item.kind === 'Video' ? Play : item.kind === 'Practice' ? Target : FileText;
-  return <article className={`resource-card resource-${item.accent || 'blue'}`}><div className="resource-cover"><div className="resource-cover-icon"><Icon size={21}/></div><span className="level-chip">{item.level}</span><div className="cover-lines"><span/><span/><span/></div><div className="cover-mark">{item.topic.split(' ').map((word) => word[0]).join('').slice(0, 2)}</div></div><div className="resource-body"><div className="resource-meta"><span>{item.subject}</span><span>{item.kind}</span></div><h3>{item.title}</h3><p>{item.description}</p>{open && <div className="resource-content"><strong>A quick note</strong><p>{item.content}</p></div>}<div className="resource-bottom"><span><Clock3 size={14}/>{item.duration}</span><button onClick={() => setOpen(!open)}>{open ? 'Close note' : 'Open resource'} <ArrowRight size={14}/></button></div></div></article>;
+  return <article className={`resource-card resource-${item.accent || 'blue'} ${completed ? 'resource-completed' : ''}`}><div className="resource-cover"><div className="resource-cover-icon"><Icon size={21}/></div><span className="level-chip">{item.level}</span><div className="cover-lines"><span/><span/><span/></div><div className="cover-mark">{item.topic.split(' ').map((word) => word[0]).join('').slice(0, 2)}</div>{completed && <span className="completed-stamp"><Check size={13}/> Completed</span>}</div><div className="resource-body"><div className="resource-meta"><span>{item.subject}</span><span>{item.kind}</span></div><h3>{item.title}</h3><p>{item.description}</p><div className="resource-bottom"><span><Clock3 size={14}/>{item.duration}</span><button onClick={onOpen}>{item.kind === 'Practice' ? 'Start practice' : item.kind === 'Video' ? 'Read transcript' : 'Open lesson'} <ArrowRight size={14}/></button></div></div></article>;
+}
+function ResourceLesson({ token, item, completed, onToggleComplete, onBack }) {
+  const [answer, setAnswer] = useState(null);
+  const [checkResult, setCheckResult] = useState(null);
+  const [checking, setChecking] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  if (!item) return <div className="resource-not-found"><button className="quiet-link" onClick={onBack}><ArrowRight size={15}/> Back to Study library</button><h1>This lesson isn’t available.</h1><p>It may have been removed or the library is still loading.</p></div>;
+  const Icon = item.kind === 'Video' ? Play : item.kind === 'Practice' ? Target : FileText;
+  const exercise = item.exercise?.options?.length > 1 ? item.exercise : null;
+  const toggleComplete = async () => {
+    setBusy(true); setError('');
+    try { await onToggleComplete(item._id, completed); }
+    catch (issue) { setError(issue.message || 'Could not save this lesson yet. Try again.'); }
+    finally { setBusy(false); }
+  };
+  const checkAnswer = async () => {
+    if (answer === null) return;
+    setChecking(true); setError('');
+    try { const result = await request(`/resources/${item._id}/check`, token, { method: 'POST', body: JSON.stringify({ answerIndex: answer }) }); setCheckResult(result); }
+    catch (issue) { setError(issue.message || 'Could not check this answer yet. Try again.'); }
+    finally { setChecking(false); }
+  };
+  return <article className={`resource-lesson resource-${item.accent || 'blue'} ${completed ? 'resource-completed' : ''}`}><button className="lesson-back" onClick={onBack}><ArrowRight size={16}/> Back to Study Library</button><div className="lesson-hero"><div className="lesson-cover"><div className="resource-cover-icon"><Icon size={24}/></div><span className="level-chip">{item.level}</span><div className="cover-lines"><span/><span/><span/></div><div className="cover-mark">{item.topic.split(' ').map((word) => word[0]).join('').slice(0, 2)}</div></div><div className="lesson-heading"><div className="resource-meta"><span>{item.subject} / {item.topic}</span><span>{item.kind}</span></div><h1>{item.title}</h1><p>{item.description}</p><div className="lesson-duration"><Clock3 size={15}/>{item.duration}{completed && <span className="lesson-completed-label"><Check size={14}/> Completed</span>}</div></div></div><div className="lesson-layout"><div className="lesson-main-content"><div className="lesson-block"><span className="page-eyebrow">{item.kind === 'Video' ? 'Lesson transcript' : 'Core idea'}</span><p>{item.kind === 'Video' ? (item.transcript || item.content) : item.content}</p></div>{item.example && <div className="lesson-block"><span className="page-eyebrow">Worked example</span><pre className="resource-example">{item.example}</pre></div>}{exercise && <fieldset className="resource-exercise"><legend>Quick check</legend><p>{exercise.prompt}</p><div className="resource-answer-list">{exercise.options.map((option, index) => <label key={option} className={answer === index ? 'selected' : ''}><input type="radio" name={`resource-${item._id}`} checked={answer === index} onChange={() => { setAnswer(index); setCheckResult(null); }}/><span>{option}</span></label>)}</div><button className="check-answer-button" disabled={answer === null || checking} onClick={checkAnswer}>{checking ? 'Checking…' : 'Check answer'}</button>{checkResult && <p className={`answer-feedback ${checkResult.correct ? 'correct' : 'incorrect'}`}>{checkResult.correct ? 'Correct.' : `Not quite. The answer is ${checkResult.answer}.`} {checkResult.explanation}</p>}</fieldset>}</div><aside className="lesson-sidebar"><div className="lesson-sidebar-card"><span className="page-eyebrow">Lesson details</span><h2>{item.title}</h2><dl><div><dt>Topic</dt><dd>{item.topic}</dd></div><div><dt>Level</dt><dd>{item.level}</dd></div><div><dt>Time</dt><dd>{item.duration}</dd></div></dl><div className="lesson-actions"><span>{completed ? 'You’ve finished this resource.' : 'Mark this resource complete when you’re done.'}</span><button className="complete-resource-button" onClick={toggleComplete} disabled={busy}>{completed ? <><Check size={15}/> Remove completion</> : <><CheckCircle2 size={15}/> Mark complete</>}</button></div>{error && <p className="resource-error" role="alert">{error}</p>}</div></aside></div></article>;
 }
 function QuizPage({ token, topicNames, onComplete }) {
   const [topic, setTopic] = useState(topicNames[0] || '');
@@ -223,6 +301,32 @@ function QuizPage({ token, topicNames, onComplete }) {
     {phase === 'quiz' && quiz && <section className="quiz-run"><div className="quiz-run-top"><div><span className="level-chip">{quiz.difficulty} level</span><h2>{quiz.title}</h2><p>{quiz.subject} <span>/</span> {quiz.topic}</p></div><button className="quiet-link" onClick={reset}><X size={15}/> Leave quiz</button></div><div className="quiz-progress-label">{answers.filter((answer) => answer !== null).length} of {quiz.questions.length} answered</div><div className="quiz-questions">{quiz.questions.map((question, index) => <fieldset className="question-card" key={question.prompt}><legend><span className="question-number">{String(index + 1).padStart(2, '0')}</span>{question.prompt}</legend><div className="answer-options">{question.options.map((option, optionIndex) => <label key={option} className={`answer-option ${answers[index] === optionIndex ? 'chosen' : ''}`}><input type="radio" name={`question-${index}`} checked={answers[index] === optionIndex} onChange={() => setAnswers(answers.map((answer, i) => i === index ? optionIndex : answer))}/><span className="option-letter">{String.fromCharCode(65 + optionIndex)}</span><span>{option}</span></label>)}</div></fieldset>)}</div>{error && <div className="form-error">{error}</div>}<div className="quiz-submit-row"><span>Your answers are only used to update your learning progress.</span><button className="primary-button" onClick={submit} disabled={busy}>{busy ? <LoaderCircle className="spin" size={17}/> : <>Finish quiz <ArrowRight size={17}/></>}</button></div></section>}
     {phase === 'result' && result && <section className="result-panel"><div className="result-icon"><CheckCircle2 size={29}/></div><div className="page-eyebrow">Quiz complete</div><h2>{result.result.accuracy >= 85 ? 'You’ve got a strong handle on this.' : result.result.accuracy < 50 ? 'Good start. Keep building the basics.' : 'Nice work. You’re making progress.'}</h2><div className="result-score">{result.result.score}<span> / {result.result.total}</span><small>{result.result.accuracy}% accuracy</small></div><p>Your next quiz in {result.result.topic} will be set to <strong>{result.result.nextDifficulty}</strong> level based on your recent results.</p><div className="explanations">{result.explanations.map((item, index) => <div key={index} className={`explanation ${item.correct ? 'was-correct' : 'was-wrong'}`}><span>{item.correct ? <Check size={16}/> : <X size={16}/>}</span><div><strong>{item.correct ? 'That’s right' : `Answer: ${item.answer}`}</strong><p>{item.explanation}</p></div></div>)}</div><button className="primary-button" onClick={reset}>Try another topic <RotateCcw size={16}/></button></section>}
   </>;
+}
+function ProfilePage({ profile, topics, completedCount, onSaved, token }) {
+  const [form, setForm] = useState({
+    name: profile.name || '', email: profile.email || '',
+    studyGoalMinutes: profile.studyGoalMinutes || 20,
+    preferredTopics: profile.preferredTopics || [], currentPassword: '', newPassword: ''
+  });
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [changePassword, setChangePassword] = useState(false);
+  const toggleTopic = (topic) => setForm((current) => ({ ...current, preferredTopics: current.preferredTopics.includes(topic) ? current.preferredTopics.filter((value) => value !== topic) : [...current.preferredTopics, topic] }));
+  const save = async (event) => {
+    event.preventDefault(); setBusy(true); setError('');
+    if (changePassword && (!form.currentPassword || !form.newPassword)) { setError('Enter both current and new password to change your password.'); setBusy(false); return; }
+    if (changePassword && form.newPassword.length < 8) { setError('Use a new password with at least 8 characters.'); setBusy(false); return; }
+    const body = { name: form.name, email: form.email, studyGoalMinutes: Number(form.studyGoalMinutes), preferredTopics: form.preferredTopics };
+    if (changePassword) { body.currentPassword = form.currentPassword; body.newPassword = form.newPassword; }
+    try {
+      const result = await request('/me', token, { method: 'PATCH', body: JSON.stringify(body) });
+      onSaved(result.user);
+      setForm((current) => ({ ...current, name: result.user.name, email: result.user.email, studyGoalMinutes: result.user.studyGoalMinutes, preferredTopics: result.user.preferredTopics, currentPassword: '', newPassword: '' }));
+      setChangePassword(false);
+    } catch (issue) { setError(issue.message); }
+    finally { setBusy(false); }
+  };
+  return <><PageTitle eyebrow="Profile settings" title="Make this space yours." description="Update your account details, choose what you’re learning, and set a daily study goal."/><div className="profile-layout"><form className="profile-form panel" onSubmit={save}><div className="panel-heading"><div><h2>Student profile</h2><p>Your account and learning preferences.</p></div><div className="profile-avatar-large">{initials(form.name)}</div></div><div className="profile-fields"><label>Full name<input value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} required minLength="2" maxLength="80" autoComplete="name"/></label><label>Email address<input type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} required autoComplete="email"/></label><label>Daily study goal<select value={form.studyGoalMinutes} onChange={(event) => setForm({ ...form, studyGoalMinutes: event.target.value })}>{[10, 15, 20, 30, 45, 60, 90, 120].map((minutes) => <option key={minutes} value={minutes}>{minutes} minutes a day</option>)}</select></label></div><div className="profile-topic-section"><div><strong>Topics I’m interested in</strong><p>We’ll use these to shape your study suggestions.</p></div><div className="profile-topic-grid">{topics.map((topic) => <label key={topic} className={form.preferredTopics.includes(topic) ? 'topic-choice checked' : 'topic-choice'}><input type="checkbox" checked={form.preferredTopics.includes(topic)} onChange={() => toggleTopic(topic)}/><span>{topic}</span>{form.preferredTopics.includes(topic) && <Check size={14}/>}</label>)}</div></div><div className="profile-password-section"><div><strong>Change password</strong><p>Only open this if you want to replace your password.</p><button type="button" className="password-toggle" onClick={() => { setChangePassword((value) => !value); setForm((current) => ({ ...current, currentPassword: '', newPassword: '' })); setError(''); }}>{changePassword ? 'Cancel password change' : 'Change password'}</button></div>{changePassword && <div className="profile-fields password-fields"><label>Current password<input type="password" autoComplete="current-password" value={form.currentPassword} onChange={(event) => setForm({ ...form, currentPassword: event.target.value })} placeholder="Current password" required/></label><label>New password<input type="password" autoComplete="new-password" value={form.newPassword} onChange={(event) => setForm({ ...form, newPassword: event.target.value })} placeholder="At least 8 characters" minLength="8" required/></label></div>}</div>{error && <div className="form-error" role="alert">{error}</div>}<div className="profile-save-row"><span>Your password is stored securely as a one-way hash.</span><button className="primary-button" disabled={busy}>{busy ? <><LoaderCircle className="spin" size={16}/> Saving…</> : <><Save size={16}/> Save profile</>}</button></div></form><aside className="profile-overview"><div className="profile-overview-art"><UserRound size={34}/></div><div className="profile-overview-body"><span className="page-eyebrow">Your learning space</span><h2>{form.name || 'Student'}</h2><p>{form.email}</p><div className="profile-overview-stat"><strong>{completedCount}</strong><span>resources completed</span></div><div className="profile-overview-stat"><strong>{form.studyGoalMinutes}</strong><span>minutes in your daily goal</span></div><div className="profile-preferences"><strong>Following topics</strong><p>{form.preferredTopics.length ? form.preferredTopics.join(', ') : 'Choose a topic to personalize your study space.'}</p></div></div></aside></div></>;
 }
 function ProgressPage({ topics, summary, attempts }) {
   const sorted = [...topics].sort((a, b) => a.accuracy - b.accuracy);
