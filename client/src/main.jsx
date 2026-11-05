@@ -218,14 +218,13 @@ function LearningMap({ topics }) {
   const practicedTopics = topics.filter((topic) => topic.attempts > 0);
   const mapProgress = practicedTopics.length ? Math.round(practicedTopics.reduce((sum, topic) => sum + topic.accuracy, 0) / practicedTopics.length) : 0;
   const positions = ['map-point-start', 'map-point-middle', 'map-point-end'];
-  return <div className="learning-map" aria-label="Your topic learning map">
-    <div className="map-heading"><span>Your learning route</span><span className="map-legend"><i /> recent accuracy</span></div>
+  return <div className="learning-map" role="img" aria-label={`Learning route across ${topics.slice(0, 3).map((topic) => topic.topic).join(', ')}. Average recent accuracy ${mapProgress} percent.`}>
+    <div className="map-heading"><span>Learning route</span><span className="map-legend"><i /> Recent accuracy</span></div>
     <svg className="map-route" viewBox="0 0 600 220" preserveAspectRatio="none" aria-hidden="true"><path d="M44 150 C135 150 151 73 278 80 S410 160 552 142"/><path className="map-route-glow" pathLength="100" style={{ strokeDasharray: `${mapProgress} 100` }} d="M44 150 C135 150 151 73 278 80 S410 160 552 142"/></svg>
     {topics.slice(0, 3).map((topic, index) => <div className={`map-point ${positions[index] || 'map-point-end'}`} key={topic.topic}>
       <span className={`map-node ${topic.accuracy >= 85 ? 'node-strong' : topic.attempts ? 'node-active' : ''}`}><span /></span>
       <span className="map-label"><strong>{topic.topic}</strong><small>{topic.attempts ? `${Math.round(topic.accuracy)}% recent accuracy` : 'Ready to begin'}</small></span>
     </div>)}
-    <div className="map-compass" aria-hidden="true">N<span>↑</span></div>
   </div>;
 }
 
