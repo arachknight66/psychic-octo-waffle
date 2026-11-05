@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { Activity, ArrowDownRight, ArrowRight, ArrowUpRight, BookOpen, BrainCircuit, BookmarkCheck, Check, CheckCircle2, ChevronDown, CircleHelp, Clock3, Compass, FileText, GraduationCap, LayoutDashboard, LibraryBig, Lightbulb, LoaderCircle, LogOut, Menu, Play, RotateCcw, Save, Search, Settings2, Sparkles, Target, UserRound, X } from 'lucide-react';
 import './styles.css';
 
-const API = import.meta.env.VITE_API_URL || 'http://localhost:4000';
+const API = import.meta.env.VITE_API_URL || (import.meta.env.PROD ? '' : 'http://localhost:4000');
 const STORAGE_KEY = 'learnwell-session';
 const navItems = [
   { id: 'home', label: 'Overview', icon: LayoutDashboard },

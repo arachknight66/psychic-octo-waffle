@@ -20,6 +20,7 @@ export function fallbackRecommendations(topics, resources) {
 }
 
 export async function getRecommendations(topics, resources) {
+  if (process.env.VERCEL) return { items: fallbackRecommendations(topics, resources), source: 'local-fallback' };
   try {
     const response = await fetch(`${process.env.RECOMMENDER_URL || 'http://127.0.0.1:8000'}/recommend`, {
       method: 'POST', headers: { 'content-type': 'application/json' },
